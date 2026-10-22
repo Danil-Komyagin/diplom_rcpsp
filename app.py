@@ -6,10 +6,7 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import os
 
-import matplotlib
-matplotlib.use('TkAgg')
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import ImageTk
 
 from .theme import COLORS, setup_styles
 from .core import (
@@ -19,7 +16,8 @@ from .core import (
     load_project_from_json, save_project_to_json,
     export_resource_table_csv, export_resource_table_txt,
 )
-from .widgets import ExcelResourceTable, ExcelTaskTable, ResourceUsageTable
+from .core.dashboard import build_dashboard
+from .widgets import ExcelResourceTable, ExcelTaskTable
 from .tabs import build_file_tab, build_project_tab, build_db_tab
 from .dialogs import (
     open_method_dialog, open_rule_dialog,
@@ -51,6 +49,10 @@ class App:
 
         self.method_var = tk.StringVar(value="parallel")
         self.priority_var = tk.StringVar(value="LPT")
+
+        # Авторизация — не требуется для запуска
+        self.user_id = None
+        self._current_db_project_id = None
 
         self._create_widgets()
 
@@ -139,35 +141,63 @@ class App:
             on_run=self._run,
         )
 
-        # ===== Панель с диаграммой Ганта =====
-        gantt_frame = tk.LabelFrame(
-            main_frame, text="📈 Диаграмма Ганта",
+        # ===== Дашборд (диаграмма Ганта + таблицы ресурсов) =====
+        dashboard_frame = tk.LabelFrame(
+            main_frame, text="📈 Дашборд проекта",
             font=('Arial', 11, 'bold'),
             bg=COLORS['white'], fg=COLORS['primary_dark'],
             padx=10, pady=10, relief='groove', bd=2,
         )
-        gantt_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
+        dashboard_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
-        self.gantt_container = tk.Frame(gantt_frame, bg=COLORS['white'])
-        self.gantt_container.pack(fill=tk.BOTH, expand=True)
-        self.gantt_container.configure(height=500)
-        self.gantt_container.pack_propagate(False)
+        dash_container = tk.Frame(dashboard_frame, bg=COLORS['white'])
+        dash_container.pack(fill=tk.BOTH, expand=True)
 
-        self.gantt_figure = Figure(figsize=(10, 6), dpi=90, facecolor=COLORS['white'])
-        self.gantt_ax = self.gantt_figure.add_subplot(111)
-        self.gantt_ax.text(
-            0.5, 0.5,
-            "Запустите планирование, чтобы увидеть диаграмму",
-            ha='center', va='center',
-            fontsize=11, color=COLORS['text_light'],
-            transform=self.gantt_ax.transAxes,
+        self.dash_canvas = tk.Canvas(
+            dash_container,
+            bg=COLORS['white'],
+            height=500,
+            highlightthickness=0,
+            bd=0,
         )
-        self.gantt_ax.set_xticks([])
-        self.gantt_ax.set_yticks([])
+        self.dash_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.gantt_canvas = FigureCanvasTkAgg(self.gantt_figure, master=self.gantt_container)
-        self.gantt_canvas.draw()
-        self.gantt_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.dash_v_scroll = tk.Scrollbar(
+            dash_container, orient=tk.VERTICAL,
+            command=self.dash_canvas.yview,
+        )
+        self.dash_v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.dash_h_scroll = tk.Scrollbar(
+            dashboard_frame, orient=tk.HORIZONTAL,
+            command=self.dash_canvas.xview,
+        )
+        self.dash_h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.dash_canvas.configure(
+            xscrollcommand=self.dash_h_scroll.set,
+            yscrollcommand=self.dash_v_scroll.set,
+        )
+
+        self.dash_inner = tk.Frame(self.dash_canvas, bg=COLORS['white'])
+        self.dash_canvas_window = self.dash_canvas.create_window(
+            (0, 0), window=self.dash_inner, anchor='nw',
+        )
+
+        self._show_dashboard_placeholder()
+
+        # Прокрутка колёсиком для дашборда
+        def on_dash_wheel(event):
+            self.dash_canvas.yview_scroll(int(-event.delta / 120), 'units')
+
+        def bind_dash_wheel(_):
+            self.dash_canvas.bind_all('<MouseWheel>', on_dash_wheel)
+
+        def unbind_dash_wheel(_):
+            self.dash_canvas.unbind_all('<MouseWheel>')
+
+        self.dash_canvas.bind('<Enter>', bind_dash_wheel)
+        self.dash_canvas.bind('<Leave>', unbind_dash_wheel)
 
         # ===== Прогресс-бар =====
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate', length=200)
@@ -182,39 +212,18 @@ class App:
         )
         self.status_label.pack(anchor=tk.W, pady=2)
 
-        # ===== Таблица потребности ресурсов =====
-        usage_frame = tk.LabelFrame(
-            main_frame, text="📊 Потребность ресурсов по дням",
-            font=('Arial', 11, 'bold'),
-            bg=COLORS['white'], fg=COLORS['primary_dark'],
-            padx=10, pady=10, relief='groove', bd=2,
-        )
-        usage_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
-
-        self.usage_table = ResourceUsageTable(
-            usage_frame,
-            title="",
-            mode='usage',
-        )
-
-        # ===== Таблица доступности ресурсов =====
-        available_frame = tk.LabelFrame(
-            main_frame, text="📈 Доступность ресурсов по дням",
-            font=('Arial', 11, 'bold'),
-            bg=COLORS['white'], fg=COLORS['primary_dark'],
-            padx=10, pady=10, relief='groove', bd=2,
-        )
-        available_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
-
-        self.available_table = ResourceUsageTable(
-            available_frame,
-            title="",
-            mode='available',
-        )
-
-
-
-
+    def _show_dashboard_placeholder(self):
+        """Показывает заглушку на дашборде."""
+        for w in self.dash_inner.winfo_children():
+            w.destroy()
+        tk.Label(
+            self.dash_inner,
+            text="Запустите планирование, чтобы увидеть дашборд",
+            font=('Arial', 11, 'italic'),
+            bg=COLORS['white'],
+            fg=COLORS['text_light'],
+        ).pack(padx=20, pady=20)
+        self.dash_canvas.configure(scrollregion=(0, 0, 0, 0))
 
     # ==================================================================
     # РИББОН
@@ -267,6 +276,49 @@ class App:
         builder(self.ribbon_content_frame, self)
 
     # ==================================================================
+    # АВТОРИЗАЦИЯ
+    # ==================================================================
+    def _db_login(self):
+        """Открывает диалог входа / регистрации."""
+        from .dialogs.login_dialog import open_login_dialog
+
+        user_id = open_login_dialog(self.root)
+        if user_id is None:
+            return
+
+        self.user_id = user_id
+        from .core import storage
+        username = storage.get_username(user_id)
+        self.status_label.config(
+            text=f"👤 Вы вошли как {username}",
+            fg=COLORS['success'],
+        )
+        self._switch_tab("База данных", build_db_tab)
+
+    def _db_logout(self):
+        """Выходит из системы."""
+        if not messagebox.askyesno("Выход", "Выйти из учётной записи?"):
+            return
+        self.user_id = None
+        self._current_db_project_id = None
+        self.status_label.config(
+            text="🚪 Вы вышли из системы",
+            fg=COLORS['text_light'],
+        )
+        self._switch_tab("База данных", build_db_tab)
+
+    def _require_login(self) -> bool:
+        """Проверяет, вошёл ли пользователь."""
+        if self.user_id is None:
+            messagebox.showwarning(
+                "Требуется вход",
+                "Для работы с базой данных нужно войти.\n\n"
+                "Нажмите «🔐 Войти» во вкладке «База данных».",
+            )
+            return False
+        return True
+
+    # ==================================================================
     # ОБЁРТКИ НАД ДИАЛОГАМИ
     # ==================================================================
     def _set_method_dialog(self):
@@ -292,16 +344,93 @@ class App:
             f"Метод: {self.method_var.get()}\n"
             f"Правило: {self.priority_var.get()}\n"
         )
+        if self.user_id is not None:
+            from .core import storage
+            username = storage.get_username(self.user_id)
+            info += f"Пользователь: {username}\n"
         messagebox.showinfo("Информация о проекте", info)
 
+    # ==================================================================
+    # БАЗА ДАННЫХ
+    # ==================================================================
     def _db_save_stub(self):
-        messagebox.showinfo("База данных",
-                            "Сохранение проекта в базу данных.\n\n(Функция в разработке)")
+        """Сохраняет проект в БД."""
+        if not self._require_login():
+            return
+
+        project = self._build_project()
+        if project is None:
+            return
+
+        try:
+            from .core import storage
+            project_id = storage.save_project(self.user_id, project)
+            self._current_db_project_id = project_id
+            messagebox.showinfo(
+                "Успех",
+                f"Проект '{project.name}' сохранён в БД.\nID: {project_id}",
+            )
+            self.status_label.config(
+                text=f"💾 Сохранено в БД: {project.name}",
+                fg=COLORS['success'],
+            )
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", str(e))
 
     def _db_load_stub(self):
-        self._clear_resource_tables()
-        messagebox.showinfo("База данных",
-                            "Загрузка проекта из базы данных.\n\n(Функция в разработке)")
+        """Загружает проект из БД."""
+        if not self._require_login():
+            return
+
+        from .dialogs.projects_dialog import open_projects_dialog
+        from .core import storage
+
+        project_id = open_projects_dialog(self.root, self.user_id)
+        if project_id is None:
+            return
+
+        try:
+            project = storage.load_project(project_id)
+            if project is None:
+                messagebox.showerror("Ошибка", "Проект не найден.")
+                return
+        except Exception as e:
+            messagebox.showerror("Ошибка загрузки", str(e))
+            return
+
+        self._apply_project(project)
+        self._current_db_project_id = project_id
+        self.status_label.config(
+            text=f"📁 Загружен из БД: {project.name}",
+            fg=COLORS['success'],
+        )
+
+    # ==================================================================
+    # ПРИМЕНЕНИЕ ПРОЕКТА К UI
+    # ==================================================================
+    def _apply_project(self, project: Project):
+        """Универсальная заливка проекта в UI (используется в _load, _db_load_stub, _load_demo_project)."""
+        self.project_name = project.name
+        self.resource_limits = dict(project.resource_limits)
+        self.project = project
+        self.schedule = None
+
+        self.resource_table.clear()
+        for rname, count in project.resource_limits.items():
+            self.resource_table.add_resource(rname, count)
+
+        self.task_table.rebuild()
+        tasks_for_table = [
+            {
+                'id': t.id, 'name': t.name,
+                'duration': t.duration, 'resources': dict(t.resources),
+            }
+            for t in project.tasks
+        ]
+        self.task_table.set_tasks(tasks_for_table, project.dependencies)
+
+        self._sync_from_table()
+        self._show_dashboard_placeholder()
 
     # ==================================================================
     # ВСПОМОГАТЕЛЬНЫЕ
@@ -324,65 +453,36 @@ class App:
         self.status_label.config(text="✏️ Изменено", fg=COLORS['text_light'])
 
     # ==================================================================
-    # ДИАГРАММА ГАНТА
+    # ДАШБОРД
     # ==================================================================
-    def _clear_gantt(self):
-        if not hasattr(self, 'gantt_ax'):
+    def _draw_dashboard(self, schedule: dict, makespan: int):
+        """Рисует дашборд на canvas."""
+        try:
+            img = build_dashboard(self.project, schedule)
+        except Exception as e:
+            messagebox.showerror("Ошибка дашборда", str(e))
             return
-        self.gantt_ax.clear()
-        self.gantt_ax.text(
-            0.5, 0.5,
-            "Запустите планирование, чтобы увидеть диаграмму",
-            ha='center', va='center',
-            fontsize=11, color=COLORS['text_light'],
-            transform=self.gantt_ax.transAxes,
+
+        photo = ImageTk.PhotoImage(img)
+
+        for w in self.dash_inner.winfo_children():
+            w.destroy()
+
+        label = tk.Label(self.dash_inner, image=photo, bg=COLORS['white'])
+        label.image = photo
+        label.pack()
+
+        self.dash_inner.update_idletasks()
+        self.dash_canvas.itemconfigure(
+            self.dash_canvas_window,
+            width=img.width,
+            height=img.height,
         )
-        self.gantt_ax.set_xticks([])
-        self.gantt_ax.set_yticks([])
-        self.gantt_canvas.draw()
-
-    def _draw_gantt(self, schedule: dict, makespan: int):
-        if not self.project or not schedule:
-            return
-
-        ax = self.gantt_ax
-        ax.clear()
-
-        tasks_by_id = {t.id: t for t in self.project.tasks}
-        ordered = sorted(schedule.items(), key=lambda kv: (kv[1][0], kv[0]))
-
-        palette = [
-            '#3498db', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6',
-            '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b',
-        ]
-
-        y_labels = []
-        for row_index, (tid, (start, end)) in enumerate(ordered):
-            task = tasks_by_id[tid]
-            duration = end - start
-            color = palette[tid % len(palette)]
-            ax.barh(
-                y=row_index, width=duration, left=start, height=0.6,
-                color=color, edgecolor='black', linewidth=0.5,
-            )
-            ax.text(
-                start + duration / 2, row_index, f"{duration}д",
-                ha='center', va='center',
-                color='white', fontsize=8, fontweight='bold',
-            )
-            y_labels.append(f"ID {tid}: {task.name}")
-
-        ax.set_yticks(range(len(ordered)))
-        ax.set_yticklabels(y_labels, fontsize=8)
-        ax.invert_yaxis()
-        ax.set_xlabel("День проекта", fontsize=9)
-        ax.set_title(f"Диаграмма Ганта — makespan = {makespan} дней",
-                     fontsize=10, fontweight='bold')
-        ax.set_xlim(0, makespan)
-        ax.grid(axis='x', linestyle='--', alpha=0.5)
-
-        self.gantt_figure.tight_layout()
-        self.gantt_canvas.draw()
+        self.dash_canvas.configure(
+            scrollregion=(0, 0, img.width, img.height),
+        )
+        self.dash_canvas.xview_moveto(0)
+        self.dash_canvas.yview_moveto(0)
 
     # ==================================================================
     # СОХРАНЕНИЕ НАСТРОЕК ПРОЕКТА
@@ -470,7 +570,6 @@ class App:
     # ДЕМО-ПРОЕКТ
     # ==================================================================
     def _load_demo_project(self):
-        self._clear_resource_tables()
         if not messagebox.askyesno(
             "Демо-проект",
             "Загрузить демонстрационный проект?\n\n"
@@ -486,46 +585,17 @@ class App:
             messagebox.showerror("Ошибка", f"Не удалось создать демо-проект:\n{e}")
             return
 
-        self.project_name = project.name
-        self.resource_limits = dict(project.resource_limits)
-        self.project = project
-        self.schedule = None
-
-        self.resource_table.clear()
-        for rname, count in project.resource_limits.items():
-            self.resource_table.add_resource(rname, count)
-
-        self.task_table.rebuild()
-        tasks_for_table = [
-            {
-                'id': t.id, 'name': t.name,
-                'duration': t.duration, 'resources': dict(t.resources),
-            }
-            for t in project.tasks
-        ]
-        self.task_table.set_tasks(tasks_for_table, project.dependencies)
-
-        self._sync_from_table()
-        self._clear_gantt()
+        self._apply_project(project)
+        self._current_db_project_id = None
         self.status_label.config(
             text=f"🎲 Загружен демо-проект: {project.name}",
             fg=COLORS['primary_dark'],
-        )
-
-        messagebox.showinfo(
-            "Демо-проект",
-            f"Загружен демонстрационный проект.\n\n"
-            f"Название: {project.name}\n"
-            f"Задач: {project.task_count}\n"
-            f"Ресурсов: {len(project.resource_limits)}\n\n"
-            f"Нажмите «▶ Запустить» под таблицей задач.",
         )
 
     # ==================================================================
     # ЗАПУСК ПЛАНИРОВАНИЯ
     # ==================================================================
     def _run(self):
-        self._clear_resource_tables()
         project = self._build_project()
         if project is None:
             return
@@ -534,7 +604,7 @@ class App:
         method = self.method_var.get()
         rule = self.priority_var.get()
 
-        self._clear_gantt()
+        self._show_dashboard_placeholder()
 
         self.progress.pack(fill=tk.X, pady=5)
         self.progress.start(10)
@@ -561,6 +631,7 @@ class App:
         self.progress.pack_forget()
         self.status_label.config(text=f"✅ Готово: {makespan} дней", fg=COLORS['success'])
 
+        # Сохраняем PNG в папку results
         os.makedirs("results", exist_ok=True)
         try:
             plot_gantt(self.project, schedule, save_path="results/gantt.png")
@@ -570,38 +641,36 @@ class App:
             messagebox.showwarning("Диаграммы",
                                    f"Не удалось сохранить диаграммы:\n{e}")
 
+        # Рисуем дашборд
         try:
-            self._draw_gantt(schedule, makespan)
+            self._draw_dashboard(schedule, makespan)
         except Exception as e:
             messagebox.showwarning(
-                "Диаграмма Ганта",
-                f"Не удалось отрисовать диаграмму:\n{e}",
+                "Дашборд",
+                f"Не удалось отрисовать дашборд:\n{e}",
             )
+
+        # Сохраняем историю расчёта (если проект есть в БД)
+        try:
+            if (self.user_id is not None and self.project
+                    and self._current_db_project_id is not None):
+                from .core import storage
+                storage.save_schedule(
+                    self._current_db_project_id,
+                    self.method_var.get(),
+                    self.priority_var.get(),
+                    makespan,
+                )
+        except Exception:
+            pass
 
         messagebox.showinfo(
             "Готово",
             f"Планирование завершено!\n"
             f"Длительность проекта: {makespan} дней\n\n"
-            f"Диаграмма показана в окне.\n"
+            f"Дашборд показан в окне.\n"
             f"PNG-файлы сохранены в папке results/",
         )
-
-        try:
-            self._draw_gantt(schedule, makespan)
-        except Exception as e:
-            messagebox.showwarning(
-                "Диаграмма Ганта",
-                f"Не удалось отрисовать диаграмму:\n{e}",
-            )
-
-        # Обновляем таблицы ресурсов
-        try:
-            self._update_resource_tables()
-        except Exception as e:
-            messagebox.showwarning(
-                "Таблицы ресурсов",
-                f"Не удалось обновить таблицы:\n{e}",
-            )
 
     def _show_error(self, error: str):
         self.progress.stop()
@@ -644,31 +713,8 @@ class App:
             messagebox.showerror("Ошибка загрузки", str(e))
             return
 
-        # --- СНАЧАЛА обновляем состояние App ---
-        self.project_name = project.name
-        self.resource_limits = dict(project.resource_limits)
-        self.project = project
-        self.schedule = None
-
-        # --- Затем таблица ресурсов ---
-        self.resource_table.clear()
-        for rname, count in project.resource_limits.items():
-            self.resource_table.add_resource(rname, count)
-
-        # --- И только теперь таблица задач ---
-        self.task_table.rebuild()
-        tasks_for_table = [
-            {
-                'id': t.id, 'name': t.name,
-                'duration': t.duration, 'resources': dict(t.resources),
-            }
-            for t in project.tasks
-        ]
-        self.task_table.set_tasks(tasks_for_table, project.dependencies)
-
-        self._sync_from_table()
-        self._clear_gantt()
-        self._clear_resource_tables()
+        self._apply_project(project)
+        self._current_db_project_id = None
         self.status_label.config(text=f"✅ Загружен: {project.name}", fg=COLORS['success'])
 
     # ==================================================================
@@ -719,41 +765,6 @@ class App:
             messagebox.showerror(
                 "Ошибка",
                 "Не удалось выгрузить таблицу.\nПодробности — в консоли.",
-            )
-    def _update_resource_tables(self):
-        """Обновляет обе таблицы — потребности и доступности — по текущему расписанию."""
-        if not self.project or not self.schedule:
-            return
-
-        tasks_by_id = {t.id: t for t in self.project.tasks}
-        makespan = max(end for _, end in self.schedule.values())
-
-        self.usage_table.update_data(
-            resource_names=list(self.project.resource_limits.keys()),
-            resource_limits=self.project.resource_limits,
-            schedule=self.schedule,
-            makespan=makespan,
-            tasks_by_id=tasks_by_id,
-        )
-        self.available_table.update_data(
-            resource_names=list(self.project.resource_limits.keys()),
-            resource_limits=self.project.resource_limits,
-            schedule=self.schedule,
-            makespan=makespan,
-            tasks_by_id=tasks_by_id,
-        )
-
-    def _clear_resource_tables(self):
-        """Очищает таблицы потребности и доступности."""
-        if hasattr(self, 'usage_table'):
-            self.usage_table.update_data(
-                resource_names=[], resource_limits={},
-                schedule={}, makespan=0, tasks_by_id={},
-            )
-        if hasattr(self, 'available_table'):
-            self.available_table.update_data(
-                resource_names=[], resource_limits={},
-                schedule={}, makespan=0, tasks_by_id={},
             )
 
 
