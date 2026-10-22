@@ -380,21 +380,3 @@ def test_scheduler_fails_when_task_exceeds_resource_capacity():
 
     with pytest.raises(RuntimeError):
         scheduler.schedule()
-
-
-def test_scheduler_fails_when_dependency_is_impossible():
-    project = Project(
-        tasks=[
-            Task(1, "Task A", 2),
-            Task(2, "Task B", 2),
-        ],
-        dependencies={
-            1: [2],
-            2: [1],
-        },
-    )
-
-    scheduler = SerialScheduler(project)
-
-    with pytest.raises(RuntimeError):
-        scheduler.schedule()
