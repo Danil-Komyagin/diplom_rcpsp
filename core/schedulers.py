@@ -156,10 +156,6 @@ def _make_topological(order: List[int], project, tasks_by_id, preds) -> List[int
 
     return result
 
-
-# ============================================================================
-# SERIAL SGS
-# ============================================================================
 class SerialScheduler:
     """
     Последовательный SGS.
