@@ -2,7 +2,6 @@ import pytest
 
 from core.models import Task, Project
 
-
 @pytest.fixture
 def sample_tasks():
     return [
@@ -26,11 +25,6 @@ def sample_project(sample_tasks):
         },
         name="Test Project",
     )
-
-
-# =========================
-# Task tests
-# =========================
 
 def test_task_creation():
     task = Task(
@@ -114,11 +108,6 @@ def test_task_from_dict_without_resources():
     })
 
     assert task.resources == {}
-
-
-# =========================
-# Project tests
-# =========================
 
 def test_project_creation(sample_project):
     assert sample_project.name == "Test Project"

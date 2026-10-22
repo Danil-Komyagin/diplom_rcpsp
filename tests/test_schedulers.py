@@ -30,9 +30,6 @@ def independent_project():
 
 @pytest.fixture
 def dependency_project():
-    """
-    Task 2 depends on task 1; task 3 depends on task 2.
-    """
     return Project(
         tasks=[
             Task(1, "Design", 2, {"developer": 1}),
@@ -52,16 +49,10 @@ def dependency_project():
 
 
 def assert_schedule_is_valid(project, schedule, makespan):
-    """
-    Check schedule completeness, durations, dependencies,
-    resource capacities, and makespan.
-    """
     tasks_by_id = {task.id: task for task in project.tasks}
 
-    # Every task must be scheduled exactly once.
     assert set(schedule) == set(tasks_by_id)
 
-    # Every task must have a valid time interval.
     for task_id, (start, end) in schedule.items():
         task = tasks_by_id[task_id]
 
@@ -69,7 +60,6 @@ def assert_schedule_is_valid(project, schedule, makespan):
         assert end > start
         assert end - start == task.duration
 
-    # Every dependency must be respected.
     for task_id, dependencies in project.dependencies.items():
         task_start = schedule[task_id][0]
 
@@ -78,7 +68,6 @@ def assert_schedule_is_valid(project, schedule, makespan):
 
             assert task_start >= dependency_end
 
-    # Resource limits must never be exceeded.
     if schedule:
         last_day = max(end for _, end in schedule.values())
 
@@ -98,19 +87,13 @@ def assert_schedule_is_valid(project, schedule, makespan):
                 assert amount <= project.resource_limits.get(
                     resource, 0
                 )
-
-    # Makespan must equal the latest task completion.
+                
     expected_makespan = max(
         (end for _, end in schedule.values()),
         default=0,
     )
 
     assert makespan == expected_makespan
-
-
-# =========================
-# Serial scheduler tests
-# =========================
 
 def test_serial_scheduler_creates_complete_schedule(
     independent_project,
@@ -133,7 +116,6 @@ def test_serial_scheduler_respects_resource_capacity(
 
     schedule, makespan = scheduler.schedule()
 
-    # The two tasks require the same exclusive resource.
     assert schedule[1] == (0, 3)
     assert schedule[2] == (3, 5)
     assert makespan == 5
@@ -171,11 +153,6 @@ def test_serial_scheduler_rejects_unknown_priority_rule(
 ):
     with pytest.raises(ValueError):
         SerialScheduler(independent_project, rule="UNKNOWN")
-
-
-# =========================
-# Parallel scheduler tests
-# =========================
 
 def test_parallel_scheduler_creates_complete_schedule(
     independent_project,
@@ -246,11 +223,6 @@ def test_parallel_scheduler_rejects_unknown_priority_rule(
     with pytest.raises(ValueError):
         ParallelScheduler(independent_project, rule="UNKNOWN")
 
-
-# =========================
-# Scheduler factory tests
-# =========================
-
 @pytest.mark.parametrize(
     ("method", "expected_class"),
     [
@@ -288,11 +260,6 @@ def test_create_scheduler_rejects_unknown_method(independent_project):
             "unknown",
             independent_project,
         )
-
-
-# =========================
-# Priority rule tests
-# =========================
 
 def test_lpt_prioritizes_longer_tasks(independent_project):
     long_task, short_task = independent_project.tasks
@@ -362,11 +329,6 @@ def test_ms_prioritizes_greater_resource_consumption():
     assert rule_ms(task_b, project, {}) < (
         rule_ms(task_a, project, {})
     )
-
-
-# =========================
-# Invalid scheduling cases
-# =========================
 
 def test_scheduler_fails_when_task_exceeds_resource_capacity():
     project = Project(
