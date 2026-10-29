@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RCPSP — Планировщик проектов</title>
+  <link rel="stylesheet" href="/static/style.css">
+
+  <!-- Библиотека для интерактивной диаграммы Ганта -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <h1>📊 RCPSP — Планировщик проектов</h1>
+    <div class="header-right">
+      <div class="header-actions">
+        <button class="btn secondary" onclick="loadDemo()">🎲 Демо</button>
+        <button class="btn secondary" onclick="exportJson()">💾 Сохранить JSON</button>
+        <label class="file-label">
+          📂 Загрузить JSON
+          <input type="file" id="import-file" accept=".json" hidden>
+        </label>
+      </div>
+      <div class="auth">
+        <span id="user-info">Не вошёл</span>
+        <button id="btn-login">Войти</button>
+        <button id="btn-logout" style="display:none">Выйти</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== РЕСУРСЫ ===== -->
+    <section class="card">
+      <h2>Ресурсы</h2>
+      <div class="excel-wrap">
+        <table class="excel-table" id="resources-table">
+          <tbody>
+            <tr id="resources-names"></tr>
+            <tr id="resources-counts"></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-actions">
+        <button class="btn save-btn" onclick="saveResources()">💾 Сохранить</button>
+      </div>
+    </section>
+
+    <!-- ===== ЗАДАЧИ ===== -->
+    <section class="card">
+      <h2>Задачи проекта</h2>
+      <div class="excel-wrap tasks-wrap">
+        <table class="excel-table" id="tasks-table">
+          <thead>
+            <tr id="tasks-header"></tr>
+          </thead>
+          <tbody id="tasks-body"></tbody>
+        </table>
+      </div>
+      <div class="table-actions">
+        <button class="btn primary" onclick="runScheduler()">▶ Запустить</button>
+      </div>
+    </section>
+
+    <!-- ===== УПРАВЛЕНИЕ ===== -->
+    <section class="card controls">
+      <label>Метод:
+        <select id="method">
+          <option value="parallel">Параллельный SGS</option>
+          <option value="serial">Последовательный SGS</option>
+          <option value="genetic">Генетический</option>
+          <option value="bnb">Branch and Bound</option>
+        </select>
+      </label>
+      <label>Правило:
+        <select id="rule">
+          <option>LPT</option><option>SPT</option>
+          <option>MTS</option><option>GRPW</option><option>MS</option>
+        </select>
+      </label>
+    </section>
+
+    <!-- ===== РЕЗУЛЬТАТЫ ===== -->
+    <section class="card" id="results-card" style="display:none">
+      <h2>Результат</h2>
+      <p>Makespan: <strong id="makespan"></strong> дней</p>
+
+      <div class="images">
+        <!-- Контейнер для интерактивного Ганта -->
+        <div id="gantt-wrapper">
+          <svg id="gantt"></svg>
+        </div>
+
+        <img id="dashboard-img" alt="Дашборд">
+        <img id="resources-img" alt="Использование ресурсов">
+      </div>
+
+      <div class="export-row">
+        <label>Дата старта: <input type="date" id="start-date"></label>
+        <button class="btn secondary" onclick="exportResourceTable('csv')">📄 CSV</button>
+        <button class="btn secondary" onclick="exportResourceTable('txt')">📄 TXT</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- Модалка зависимостей -->
+  <div id="deps-modal" class="modal" style="display:none">
+    <div class="modal-content">
+      <h2>Зависимости для задачи <span id="deps-task-id"></span></h2>
+      <div id="deps-list" class="deps-list"></div>
+      <div class="modal-actions">
+        <button class="btn primary" onclick="applyDeps()">✅ Применить</button>
+        <button class="btn secondary" onclick="closeDeps()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка логина -->
+  <div id="login-modal" class="modal" style="display:none">
+    <div class="modal-content">
+      <h2>Вход</h2>
+      <label>Логин: <input id="login-username" type="text"></label>
+      <label>Пароль: <input id="login-password" type="password"></label>
+      <div class="modal-actions">
+        <button class="btn primary" onclick="doLogin()">Войти</button>
+        <button class="btn secondary" onclick="doRegister()">Регистрация</button>
+        <button class="btn secondary" onclick="closeLogin()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
